@@ -25,8 +25,12 @@ class _HomePageState extends State<HomePage> {
 
   void ProcessPost(NotificationEvent event) {
     _totalNotificationHandled.value = _totalNotificationHandled.value + 1;
-    // TODO: parse message and send money to post
-    // AppNotifierState.instance.value.apiClient?.
+    if ((event.packageName ?? "") == Constants.targetPackage) {
+      //Оплата: _ T
+      //var messageInfo = event.text ?? ""; //TODO: parse money
+      // TODO: send money to post
+      // AppNotifierState.instance.value.apiClient?.
+    }
   }
 
   Future<void> initPlatformState() async {
@@ -38,7 +42,14 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     initPlatformState();
+    _initInstance();
     super.initState();
+  }
+
+  void _initInstance() async {
+    AppNotifierState newInstance = AppNotifierState();
+    await newInstance.Init();
+    AppNotifierState.instance.value = newInstance;
   }
 
   void startListening() async {
@@ -51,7 +62,11 @@ class _HomePageState extends State<HomePage> {
     var isR = await NotificationsListener.isRunning;
 
     if (!(isR ?? false)) {
-      await NotificationsListener.startService(foreground: true, title: "FlutterNotifier", description: "Мониторинг уведомлений активен");
+      await NotificationsListener.startService(
+        foreground: true,
+        title: "FlutterNotifier",
+        description: "Мониторинг уведомлений активен",
+      );
     }
 
     setState(() => started = true);
@@ -89,45 +104,26 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
       body: Column(
+        mainAxisSize: MainAxisSize.max,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           ValueListenableBuilder<AppNotifierState?>(
             valueListenable: AppNotifierState.instance,
             builder: (BuildContext context, AppNotifierState? value, Widget? child) {
               return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(5),
-                        child: const Text(
-                          "Текущий хост:",
-                        ),
-                      ),
-                      const Spacer(),
-                      Container(
-                        padding: const EdgeInsets.all(5),
-                        child: Text(
-                          value?.host ?? "Не выбран",
-                        ),
-                      )
-                    ],
+                  Container(
+                    padding: const EdgeInsets.all(5),
+                    child: Text(
+                      "Текущий хост: ${value?.host ?? "Не выбран"}",
+                    ),
                   ),
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(5),
-                        child: const Text(
-                          "Текущий пост:",
-                        ),
-                      ),
-                      const Spacer(),
-                      Container(
-                        padding: const EdgeInsets.all(5),
-                        child: Text(
-                          "${value?.post ?? "Не выбран"}",
-                        ),
-                      ),
-                    ],
+                  Container(
+                    padding: const EdgeInsets.all(5),
+                    child: Text(
+                      "Текущий пост: ${value?.post ?? "Не выбран"}",
+                    ),
                   ),
                 ],
               );
@@ -136,32 +132,23 @@ class _HomePageState extends State<HomePage> {
           ValueListenableBuilder<int>(
             valueListenable: _totalNotificationHandled,
             builder: (BuildContext context, int value, Widget? child) {
-              return Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(5),
-                    child: const Text(
-                      "Обработано уведомлений:",
-                    ),
-                  ),
-                  const Spacer(),
-                  Container(
-                    padding: const EdgeInsets.all(5),
-                    child: Text(
-                      "$value",
-                    ),
-                  ),
-                ],
+              return Container(
+                padding: const EdgeInsets.all(5),
+                child: Text(
+                  "Обработано уведомлений: $value",
+                ),
               );
             },
           )
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: started ? stopListening : startListening,
-        tooltip: 'Start/Stop sensing',
-        child: _loading ? const Icon(Icons.close) : (started ? const Icon(Icons.stop) : const Icon(Icons.play_arrow)),
-      ),
+      floatingActionButton: started
+          ? null
+          : FloatingActionButton(
+              onPressed: startListening,
+              tooltip: 'Начать мониторинг',
+              child: const Icon(Icons.play_arrow),
+            ),
     );
   }
 }

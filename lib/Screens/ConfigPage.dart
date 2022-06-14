@@ -1,8 +1,9 @@
-import 'dart:collection';
 import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_notifier/ApiClient/api.dart';
 import 'package:flutter_notifier/Constants.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -19,7 +20,8 @@ class _ConfigPageState extends State<ConfigPage> {
   ValueNotifier<String?> _host = ValueNotifier(null);
   ValueNotifier<int?> _post = ValueNotifier(null);
 
-  ValueNotifier<List<String>> _possibleHosts = ValueNotifier([""]);
+  TextEditingController pinCodeController = TextEditingController();
+
   String _selectedHost = "";
   List<int> _possiblePosts = List.generate(12, (index) => index);
   int _selectedPost = 0;
@@ -27,31 +29,32 @@ class _ConfigPageState extends State<ConfigPage> {
   int _pos = 0;
   bool _canScan = true;
 
+  bool _succesAuth = false;
+
   @override
   void initState() {
     init();
     super.initState();
   }
 
-  @override
-  void dispose() {
-    super.dispose();
-  }
-
   void init() async {
     _sharedPreferences = await SharedPreferences.getInstance();
     _host.value = _sharedPreferences?.getString(Constants.hostKey);
     _post.value = _sharedPreferences?.getInt(Constants.postKey);
-    List<String> hosts = List.from([""])
-      ..add("127.0.0.1")
-      ..add("255.255.255.255")
-      ..sort();
+    var pin = _sharedPreferences?.getString(Constants.pinKey);
 
     setState(() {
-      _possibleHosts.value = hosts;
-      _selectedHost = "";
+      _selectedHost = _host.value ?? "";
+      _selectedPost = _post.value ?? 0;
+      pinCodeController.text = pin ?? "";
       _canScan = true;
     });
+  }
+
+  @override
+  void dispose() {
+    pinCodeController.dispose();
+    super.dispose();
   }
 
   void _scanStable() async {
@@ -65,11 +68,6 @@ class _ConfigPageState extends State<ConfigPage> {
     setState(() {
       _canScan = false;
     });
-
-    HashSet<String> servers = HashSet();
-
-    var client = HttpClient();
-    client.connectionTimeout = const Duration(milliseconds: 100);
 
     String localIp = await info.getWifiIP() ?? "";
     if (localIp == "" && mounted) {
@@ -93,28 +91,36 @@ class _ConfigPageState extends State<ConfigPage> {
         setState(() {
           _pos++;
         });
+        DefaultApi api = DefaultApi(
+          ApiClient(
+            basePath: "http://$element:8020",
+          ),
+        );
+        final res = await api.status().timeout(const Duration(milliseconds: 500));
+        if (res != null) {
+          _selectedHost = "http://$element:8020";
 
-        final request = await client.get("$element", 8020, "/ping");
-        final response = await request.close();
-        if (response.statusCode == 200) {
-          servers.add("$element");
+          api.apiClient.addDefaultHeader(
+            "pin",
+            pinCodeController.value.text,
+          );
+          final userInfo = await api.getUser();
+          _succesAuth = userInfo != null;
         }
-      } catch (e) {}
+      } on ApiException catch (apiError) {
+        if (apiError.code == HttpStatus.unauthorized) {
+          _succesAuth = false;
+        }
+      } catch (e) {
+        print(e);
+      }
     });
-
-    List<String> hosts = List.from(servers)
-      ..add("")
-      ..add("127.0.0.1")
-      ..sort();
 
     if (mounted) {
       setState(() {
-        _possibleHosts.value = hosts;
-        _selectedHost = "";
         _canScan = true;
       });
     }
-    client.close();
   }
 
   void _scanQuick() async {
@@ -128,11 +134,6 @@ class _ConfigPageState extends State<ConfigPage> {
     setState(() {
       _canScan = false;
     });
-
-    HashSet<String> servers = HashSet();
-
-    var client = HttpClient();
-    client.connectionTimeout = const Duration(milliseconds: 100);
 
     String localIp = await info.getWifiIP() ?? "";
     if (localIp == "" && mounted) {
@@ -151,44 +152,52 @@ class _ConfigPageState extends State<ConfigPage> {
       return "$scanIP.$index";
     }).where((element) => element != localIp);
 
-    client.connectionTimeout = const Duration(seconds: 60);
-
     targets.forEach((element) async {
       try {
-        final request = await client.get(element, 8020, "/ping");
-        final response = await request.close();
-        if (response.statusCode == 200) {
-          servers.add("$scanIP.$element");
+        _pos++;
+
+        DefaultApi api = DefaultApi(
+          ApiClient(
+            basePath: "http://$element:8020",
+          ),
+        );
+        final res = await api.status().timeout(const Duration(seconds: 1));
+        if (res != null) {
+          _selectedHost = "http://$element:8020";
+          api.apiClient.addDefaultHeader(
+            "pin",
+            pinCodeController.value.text,
+          );
+          final userInfo = await api.getUser();
+          _succesAuth = userInfo != null;
+        }
+      } on ApiException catch (apiError) {
+        if (apiError.code == HttpStatus.unauthorized) {
+          _succesAuth = false;
         }
       } catch (e) {
         print(e);
       }
 
-      _pos++;
       if (_pos == 255) {
         _canScan = true;
       }
       setState(() {});
     });
 
-    List<String> hosts = List.from(servers)
-      ..add("")
-      ..add("127.0.0.1")
-      ..sort();
-
     if (mounted) {
       setState(() {
-        _possibleHosts.value = hosts;
-        _selectedHost = "";
         _canScan = true;
       });
     }
-    client.close();
   }
 
   void _saveHost() {
-    _sharedPreferences?.setString(Constants.hostKey, _selectedHost);
-    _host.value = _selectedHost;
+    if (_succesAuth) {
+      _sharedPreferences?.setString(Constants.hostKey, _selectedHost);
+      _sharedPreferences?.setString(Constants.pinKey, pinCodeController.value.text);
+      _host.value = _selectedHost;
+    }
     _updateInstance();
   }
 
@@ -216,45 +225,64 @@ class _ConfigPageState extends State<ConfigPage> {
           children: [
             Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.all(5),
-                  child: const Text(
-                    "Текущий хост:",
+                const Flexible(
+                  flex: 1,
+                  child: SizedBox(
+                    width: double.maxFinite,
+                    height: 30,
+                    child: Text(
+                      "Текущий хост:",
+                    ),
                   ),
                 ),
-                const Spacer(),
-                ValueListenableBuilder<String?>(
-                  valueListenable: _host,
-                  builder: (BuildContext context, String? value, Widget? child) {
-                    return Container(
-                      padding: const EdgeInsets.all(5),
-                      child: Text(
-                        value ?? "Не выбран",
-                      ),
-                    );
-                  },
+                Flexible(
+                  flex: 1,
+                  child: SizedBox(
+                    width: double.maxFinite,
+                    height: 30,
+                    child: ValueListenableBuilder<String?>(
+                      valueListenable: _host,
+                      builder: (BuildContext context, String? value, Widget? child) {
+                        return Text(
+                          value ?? "Не выбран",
+                          textAlign: TextAlign.right,
+                        );
+                      },
+                    ),
+                  ),
                 ),
               ],
             ),
             Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.all(5),
-                  child: const Text(
-                    "Текущий пост:",
+                const Flexible(
+                  flex: 1,
+                  child: SizedBox(
+                    width: double.maxFinite,
+                    height: 30,
+                    child: Text(
+                      "Текущий пост:",
+                    ),
                   ),
                 ),
-                const Spacer(),
-                ValueListenableBuilder<int?>(
-                  valueListenable: _post,
-                  builder: (BuildContext context, int? value, Widget? child) {
-                    return Container(
-                      padding: const EdgeInsets.all(5),
-                      child: Text(
-                        "${value ?? "Не выбран"}",
-                      ),
-                    );
-                  },
+                Flexible(
+                  flex: 1,
+                  child: SizedBox(
+                    width: double.maxFinite,
+                    height: 30,
+                    child: ValueListenableBuilder<int?>(
+                      valueListenable: _post,
+                      builder: (BuildContext context, int? value, Widget? child) {
+                        return Container(
+                          padding: const EdgeInsets.all(5),
+                          child: Text(
+                            "${value ?? "Не выбран"}",
+                            textAlign: TextAlign.right,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -266,6 +294,7 @@ class _ConfigPageState extends State<ConfigPage> {
                   child: SizedBox(
                     width: double.maxFinite,
                     child: MaterialButton(
+                      // onPressed: null,
                       onPressed: _canScan ? () => _scanQuick() : null,
                       color: Colors.white,
                       child: const Text("Быстрое сканирование"),
@@ -296,34 +325,72 @@ class _ConfigPageState extends State<ConfigPage> {
             ),
             const Divider(),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Flexible(
+                const Flexible(
                   flex: 1,
                   child: SizedBox(
                     width: double.maxFinite,
-                    child: const Text("Сервер: "),
-                  ),
-                ),
-                Flexible(
-                  flex: 1,
-                  child: SizedBox(
-                    width: double.maxFinite,
-                    child: DropdownButton<String>(
-                      items: _possibleHosts.value.map<DropdownMenuItem<String>>((String value) {
-                        return DropdownMenuItem(
-                          value: value,
-                          child: Text(value),
-                        );
-                      }).toList(),
-                      onChanged: (newValue) {
-                        setState(() => {_selectedHost = newValue ?? ""});
-                      },
-                      value: _selectedHost,
-                      isExpanded: true,
+                    child: Text(
+                      "Сервер: ",
+                      textAlign: TextAlign.left,
                     ),
                   ),
                 ),
+                Flexible(
+                  flex: 1,
+                  child: SizedBox(
+                    width: double.maxFinite,
+                    height: 30,
+                    child: Text(
+                      "${_selectedHost}",
+                      textAlign: TextAlign.right,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            Row(
+              mainAxisSize: MainAxisSize.max,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                const Flexible(
+                  flex: 1,
+                  child: SizedBox(
+                    width: double.maxFinite,
+                    child: Text(
+                      "PIN:",
+                      textAlign: TextAlign.left,
+                    ),
+                  ),
+                ),
+                Flexible(
+                  flex: 2,
+                  child: Container(
+                    width: double.maxFinite,
+                    child: TextField(
+                      controller: pinCodeController,
+                      maxLines: 1,
+                      autocorrect: false,
+                      keyboardType: TextInputType.number,
+                      obscureText: true,
+                      obscuringCharacter: "*",
+                      enableInteractiveSelection: false,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                      ],
+                      decoration: InputDecoration(
+                        icon: Icon(
+                          Icons.security,
+                          color: (_succesAuth && _canScan) ? Colors.green : Colors.red,
+                        ),
+                        hintText: "Введите пин...",
+                        helperText: "Пин-код авторизации",
+                        border: const OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                )
               ],
             ),
             Row(
@@ -339,10 +406,9 @@ class _ConfigPageState extends State<ConfigPage> {
                   flex: 2,
                   child: SizedBox(
                     width: double.maxFinite,
-                    child: MaterialButton(
-                      onPressed: _saveHost,
-                      color: Colors.white,
-                      child: const Text("Сохранить хост"),
+                    child: ElevatedButton(
+                      onPressed: (_succesAuth && _canScan) ? _saveHost : null,
+                      child: Text(_succesAuth ? "Сохранить" : "Невозможно авторизоваться"),
                     ),
                   ),
                 ),
@@ -351,11 +417,11 @@ class _ConfigPageState extends State<ConfigPage> {
             const Divider(),
             Row(
               children: [
-                Flexible(
+                const Flexible(
                   flex: 1,
                   child: SizedBox(
                     width: double.maxFinite,
-                    child: const Text("Пост: "),
+                    child: Text("Пост: "),
                   ),
                 ),
                 Flexible(
@@ -392,9 +458,8 @@ class _ConfigPageState extends State<ConfigPage> {
                   flex: 2,
                   child: SizedBox(
                     width: double.maxFinite,
-                    child: MaterialButton(
+                    child: ElevatedButton(
                       onPressed: _savePost,
-                      color: Colors.white,
                       child: const Text("Сохранить пост"),
                     ),
                   ),
