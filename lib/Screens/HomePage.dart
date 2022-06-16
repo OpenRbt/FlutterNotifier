@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_notification_listener/flutter_notification_listener.dart';
+import 'package:flutter_notifier/ApiClient/api.dart';
 import 'package:flutter_notifier/Constants.dart';
 import 'package:flutter_notifier/Screens/ConfigPage.dart';
+import 'package:flutter_notifier/Widgets/NotificationListPanel.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({Key? key}) : super(key: key);
@@ -15,7 +17,15 @@ class _HomePageState extends State<HomePage> {
 
   ValueNotifier<int> _totalNotificationHandled = ValueNotifier(0);
 
-  // ValueNotifier<List<NotificationListPanel>> notifications = ValueNotifier([]);
+  ValueNotifier<List<NotificationListPanel>> notifications = ValueNotifier([
+    // NotificationListPanel(
+    //   notificationEvent: NotificationEvent(text: "Оплата: 100₸", title: "Пример уведомления"),
+    //   Success: true,
+    //   Amount: 100,
+    //   TargetPost: "TestPost",
+    //   TargetPostHash: "00:00:00:00:00",
+    // )
+  ]);
 
   void onData(NotificationEvent event) {
     if (event.packageName == Constants.targetPackage) {
@@ -23,13 +33,45 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  int extractAmountFromMessage(String message) {
+    if (!message.contains("Оплата:")) return 0;
+
+    var suffix_pos = message.lastIndexOf("₸");
+    message = message.substring(0, suffix_pos >= 0 ? suffix_pos : null);
+
+    var cleaned = message.replaceAll("Оплата:", "").replaceAll("₸", "");
+    var res = int.tryParse(cleaned) ?? 0;
+
+    return res < 0 ? 0 : res;
+  }
+
   void ProcessPost(NotificationEvent event) {
-    _totalNotificationHandled.value = _totalNotificationHandled.value + 1;
     if ((event.packageName ?? "") == Constants.targetPackage) {
-      //Оплата: _ T
-      //var messageInfo = event.text ?? ""; //TODO: parse money
-      // TODO: send money to post
-      // AppNotifierState.instance.value.apiClient?.
+      _totalNotificationHandled.value = _totalNotificationHandled.value + 1;
+
+      var state = AppNotifierState.instance.value;
+
+      var amount = extractAmountFromMessage(event.text ?? "");
+      try {
+        state?.apiClient.addServiceAmount(
+          ArgAddServiceAmount(
+            hash: state.post_id,
+            amount: extractAmountFromMessage(event.text ?? ""),
+          ),
+        );
+
+        notifications.value = List.from(
+          notifications.value.length > 100 ? notifications.value.skip(1) : notifications.value,
+        )..add(
+            NotificationListPanel(notificationEvent: event, Success: true, Amount: amount),
+          );
+      } catch (e) {
+        notifications.value = List.from(
+          notifications.value.length > 100 ? notifications.value.skip(1) : notifications.value,
+        )..add(
+            NotificationListPanel(notificationEvent: event, Success: false, Amount: amount),
+          );
+      }
     }
   }
 
@@ -41,8 +83,8 @@ class _HomePageState extends State<HomePage> {
 
   @override
   void initState() {
-    initPlatformState();
     _initInstance();
+    initPlatformState();
     super.initState();
   }
 
@@ -92,15 +134,16 @@ class _HomePageState extends State<HomePage> {
         title: const Text("Flutter Notifier"),
         actions: [
           IconButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (BuildContext context) => ConfigPage(),
-                  ),
-                ).then((value) => setState(() {}));
-              },
-              icon: const Icon(Icons.settings))
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (BuildContext context) => const ConfigPage(),
+                ),
+              ).then((value) => setState(() {}));
+            },
+            icon: const Icon(Icons.settings),
+          )
         ],
       ),
       body: Column(
@@ -139,7 +182,20 @@ class _HomePageState extends State<HomePage> {
                 ),
               );
             },
-          )
+          ),
+          Divider(),
+          Expanded(
+            child: Container(
+              padding: EdgeInsets.all(8),
+              child: ValueListenableBuilder(
+                valueListenable: notifications,
+                builder: (BuildContext context, List<NotificationListPanel> list, Widget? child) => ListView.builder(
+                  itemCount: notifications.value.length,
+                  itemBuilder: (BuildContext context, int index) => notifications.value[index],
+                ),
+              ),
+            ),
+          ),
         ],
       ),
       floatingActionButton: started

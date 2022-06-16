@@ -17,14 +17,17 @@ class ConfigPage extends StatefulWidget {
 class _ConfigPageState extends State<ConfigPage> {
   SharedPreferences? _sharedPreferences;
 
+  ValueNotifier<String> _scanRange = ValueNotifier("");
   ValueNotifier<String?> _host = ValueNotifier(null);
-  ValueNotifier<int?> _post = ValueNotifier(null);
+  ValueNotifier<String?> _post = ValueNotifier(null);
+  ValueNotifier<String?> _postTitle = ValueNotifier(null);
 
   TextEditingController pinCodeController = TextEditingController();
 
   String _selectedHost = "";
-  List<int> _possiblePosts = List.generate(12, (index) => index);
-  int _selectedPost = 0;
+  List<String> _possiblePostsTitle = [];
+  List<String> _possiblePostsValue = [];
+  String _selectedPost = "";
 
   int _pos = 0;
   bool _canScan = true;
@@ -40,12 +43,14 @@ class _ConfigPageState extends State<ConfigPage> {
   void init() async {
     _sharedPreferences = await SharedPreferences.getInstance();
     _host.value = _sharedPreferences?.getString(Constants.hostKey);
-    _post.value = _sharedPreferences?.getInt(Constants.postKey);
+    _post.value = _sharedPreferences?.getString(Constants.postKey);
+    _postTitle.value = _sharedPreferences?.getString(Constants.postTitleKey);
+
     var pin = _sharedPreferences?.getString(Constants.pinKey);
 
     setState(() {
       _selectedHost = _host.value ?? "";
-      _selectedPost = _post.value ?? 0;
+      _selectedPost = _post.value ?? "";
       pinCodeController.text = pin ?? "";
       _canScan = true;
     });
@@ -70,6 +75,7 @@ class _ConfigPageState extends State<ConfigPage> {
     });
 
     String localIp = await info.getWifiIP() ?? "";
+
     if (localIp == "" && mounted) {
       setState(() {
         _canScan = true;
@@ -81,6 +87,7 @@ class _ConfigPageState extends State<ConfigPage> {
       0,
       localIp.lastIndexOf('.'),
     );
+    _scanRange.value = "${scanIP}.[___]";
 
     var targets = List.generate(256, (index) {
       return "$scanIP.$index";
@@ -88,32 +95,53 @@ class _ConfigPageState extends State<ConfigPage> {
 
     await Future.forEach(targets, (element) async {
       try {
-        setState(() {
-          _pos++;
-        });
+        _pos++;
+
         DefaultApi api = DefaultApi(
           ApiClient(
             basePath: "http://$element:8020",
           ),
         );
         final res = await api.status().timeout(const Duration(milliseconds: 500));
-        if (res != null) {
-          _selectedHost = "http://$element:8020";
 
+        var stations = (res?.stations.where((element) => element.hash != null).toList() ?? []);
+        if (res != null) {
+          if (stations.isNotEmpty) {
+            _possiblePostsTitle = List.generate(stations.length, (index) => stations[index].name ?? "");
+            _possiblePostsValue = List.generate(stations.length, (index) => stations[index].hash ?? "");
+            if (!_possiblePostsValue.contains(_selectedPost)) {
+              _selectedPost = _possiblePostsValue.first;
+            }
+          } else {
+            _possiblePostsTitle = [];
+            _possiblePostsValue = [];
+            _selectedPost = "";
+          }
+
+          _selectedHost = "http://$element:8020";
           api.apiClient.addDefaultHeader(
-            "pin",
+            "Pin",
             pinCodeController.value.text,
           );
           final userInfo = await api.getUser();
           _succesAuth = userInfo != null;
+
+          if (mounted) {
+            setState(() {
+              _canScan = true;
+              _pos = 256;
+            });
+            return;
+          }
         }
       } on ApiException catch (apiError) {
         if (apiError.code == HttpStatus.unauthorized) {
           _succesAuth = false;
         }
       } catch (e) {
-        print(e);
+        // print(e);
       }
+      setState(() {});
     });
 
     if (mounted) {
@@ -147,6 +175,7 @@ class _ConfigPageState extends State<ConfigPage> {
       0,
       localIp.lastIndexOf('.'),
     );
+    _scanRange.value = "${scanIP}.[___]";
 
     var targets = List.generate(256, (index) {
       return "$scanIP.$index";
@@ -162,10 +191,24 @@ class _ConfigPageState extends State<ConfigPage> {
           ),
         );
         final res = await api.status().timeout(const Duration(seconds: 1));
+
+        var stations = (res?.stations.where((element) => element.hash != null).toList() ?? []);
         if (res != null) {
+          if (stations.isNotEmpty) {
+            _possiblePostsTitle = List.generate(stations.length, (index) => stations[index].name ?? "");
+            _possiblePostsValue = List.generate(stations.length, (index) => stations[index].hash ?? "");
+            if (!_possiblePostsValue.contains(_selectedPost)) {
+              _selectedPost = _possiblePostsValue.first;
+            }
+          } else {
+            _possiblePostsTitle = [];
+            _possiblePostsValue = [];
+            _selectedPost = "";
+          }
+
           _selectedHost = "http://$element:8020";
           api.apiClient.addDefaultHeader(
-            "pin",
+            "Pin",
             pinCodeController.value.text,
           );
           final userInfo = await api.getUser();
@@ -176,7 +219,7 @@ class _ConfigPageState extends State<ConfigPage> {
           _succesAuth = false;
         }
       } catch (e) {
-        print(e);
+        // print(e);
       }
 
       if (_pos == 255) {
@@ -202,8 +245,19 @@ class _ConfigPageState extends State<ConfigPage> {
   }
 
   void _savePost() {
-    _sharedPreferences?.setInt(Constants.postKey, _selectedPost);
+    var title = "";
+    for (int i = 0; i < _possiblePostsTitle.length; i++) {
+      if (_possiblePostsValue[i] == _selectedPost) {
+        title = _possiblePostsTitle[i];
+        break;
+      }
+    }
+
+    _sharedPreferences?.setString(Constants.postTitleKey, title);
+    _sharedPreferences?.setString(Constants.postKey, _selectedPost);
     _post.value = _selectedPost;
+    _postTitle.value = title;
+
     _updateInstance();
   }
 
@@ -236,7 +290,7 @@ class _ConfigPageState extends State<ConfigPage> {
                   ),
                 ),
                 Flexible(
-                  flex: 1,
+                  flex: 2,
                   child: SizedBox(
                     width: double.maxFinite,
                     height: 30,
@@ -245,7 +299,7 @@ class _ConfigPageState extends State<ConfigPage> {
                       builder: (BuildContext context, String? value, Widget? child) {
                         return Text(
                           value ?? "Не выбран",
-                          textAlign: TextAlign.right,
+                          textAlign: TextAlign.left,
                         );
                       },
                     ),
@@ -270,70 +324,16 @@ class _ConfigPageState extends State<ConfigPage> {
                   child: SizedBox(
                     width: double.maxFinite,
                     height: 30,
-                    child: ValueListenableBuilder<int?>(
-                      valueListenable: _post,
-                      builder: (BuildContext context, int? value, Widget? child) {
+                    child: ValueListenableBuilder<String?>(
+                      valueListenable: _postTitle,
+                      builder: (BuildContext context, String? value, Widget? child) {
                         return Container(
-                          padding: const EdgeInsets.all(5),
                           child: Text(
-                            "${value ?? "Не выбран"}",
-                            textAlign: TextAlign.right,
+                            value ?? "Не выбран",
+                            textAlign: TextAlign.left,
                           ),
                         );
                       },
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Flexible(
-                  flex: 2,
-                  child: SizedBox(
-                    width: double.maxFinite,
-                    child: MaterialButton(
-                      // onPressed: null,
-                      onPressed: _canScan ? () => _scanQuick() : null,
-                      color: Colors.white,
-                      child: const Text("Быстрое сканирование"),
-                    ),
-                  ),
-                ),
-                Flexible(
-                  flex: 1,
-                  child: Container(),
-                ),
-                Flexible(
-                  flex: 2,
-                  child: SizedBox(
-                    width: double.maxFinite,
-                    child: MaterialButton(
-                      onPressed: _canScan ? () => _scanStable() : null,
-                      color: Colors.white,
-                      child: const Text("Cканирование"),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            LinearProgressIndicator(
-              value: _pos / 256,
-              valueColor: const AlwaysStoppedAnimation(Colors.redAccent),
-              backgroundColor: Colors.grey,
-            ),
-            const Divider(),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                const Flexible(
-                  flex: 1,
-                  child: SizedBox(
-                    width: double.maxFinite,
-                    child: Text(
-                      "Сервер: ",
-                      textAlign: TextAlign.left,
                     ),
                   ),
                 ),
@@ -342,9 +342,17 @@ class _ConfigPageState extends State<ConfigPage> {
                   child: SizedBox(
                     width: double.maxFinite,
                     height: 30,
-                    child: Text(
-                      "${_selectedHost}",
-                      textAlign: TextAlign.right,
+                    child: ValueListenableBuilder<String?>(
+                      valueListenable: _post,
+                      builder: (BuildContext context, String? value, Widget? child) {
+                        return Container(
+                          padding: const EdgeInsets.all(5),
+                          child: Text(
+                            value ?? "Не выбран",
+                            textAlign: TextAlign.right,
+                          ),
+                        );
+                      },
                     ),
                   ),
                 ),
@@ -397,7 +405,98 @@ class _ConfigPageState extends State<ConfigPage> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Flexible(
-                  flex: 3,
+                  flex: 2,
+                  child: SizedBox(
+                    width: double.maxFinite,
+                    child: ElevatedButton(
+                      onPressed: _canScan ? () => _scanQuick() : null,
+                      child: const Text("Быстрое сканирование"),
+                    ),
+                  ),
+                ),
+                Flexible(
+                  flex: 1,
+                  child: Container(),
+                ),
+                Flexible(
+                  flex: 2,
+                  child: SizedBox(
+                    width: double.maxFinite,
+                    child: ElevatedButton(
+                      onPressed: _canScan ? () => _scanStable() : null,
+                      child: const Text("Cканирование"),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                const Flexible(
+                  flex: 1,
+                  child: SizedBox(
+                    width: double.maxFinite,
+                    height: 30,
+                    child: Text(
+                      "Поиск:",
+                    ),
+                  ),
+                ),
+                Flexible(
+                  flex: 2,
+                  child: SizedBox(
+                    width: double.maxFinite,
+                    height: 30,
+                    child: ValueListenableBuilder<String>(
+                      valueListenable: _scanRange,
+                      builder: (BuildContext context, String value, Widget? child) {
+                        return Text(
+                          value,
+                          textAlign: TextAlign.left,
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            LinearProgressIndicator(
+              value: _pos / 256,
+              valueColor: const AlwaysStoppedAnimation(Colors.redAccent),
+              backgroundColor: Colors.grey,
+            ),
+            const Divider(),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                const Flexible(
+                  flex: 1,
+                  child: SizedBox(
+                    width: double.maxFinite,
+                    height: 30,
+                    child: Text(
+                      "Сервер: ",
+                      textAlign: TextAlign.left,
+                    ),
+                  ),
+                ),
+                Flexible(
+                  flex: 2,
+                  child: SizedBox(
+                    width: double.maxFinite,
+                    height: 30,
+                    child: Text(
+                      _selectedHost,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                Flexible(
+                  flex: 1,
                   child: Container(
                     width: double.maxFinite,
                   ),
@@ -408,7 +507,7 @@ class _ConfigPageState extends State<ConfigPage> {
                     width: double.maxFinite,
                     child: ElevatedButton(
                       onPressed: (_succesAuth && _canScan) ? _saveHost : null,
-                      child: Text(_succesAuth ? "Сохранить" : "Невозможно авторизоваться"),
+                      child: Text(_succesAuth ? "Сохранить" : "Авторизация не пройдена"),
                     ),
                   ),
                 ),
@@ -425,23 +524,27 @@ class _ConfigPageState extends State<ConfigPage> {
                   ),
                 ),
                 Flexible(
-                  flex: 1,
+                  flex: 2,
                   child: SizedBox(
-                    width: double.maxFinite,
-                    child: DropdownButton<int>(
-                      items: _possiblePosts.map<DropdownMenuItem<int>>((int value) {
-                        return DropdownMenuItem(
-                          value: value,
-                          child: Text(value.toString()),
-                        );
-                      }).toList(),
-                      onChanged: (newValue) {
-                        setState(() => {_selectedPost = newValue ?? -1});
-                      },
-                      value: _selectedPost,
-                      isExpanded: true,
-                    ),
-                  ),
+                      width: double.maxFinite,
+                      child: _possiblePostsValue.isNotEmpty
+                          ? DropdownButton<String>(
+                              items: List.generate(
+                                _possiblePostsTitle.length,
+                                (index) => DropdownMenuItem(
+                                  value: _possiblePostsValue[index],
+                                  child: Text(
+                                    _possiblePostsTitle[index],
+                                  ),
+                                ),
+                              ),
+                              onChanged: (newValue) {
+                                setState(() => {_selectedPost = newValue ?? ""});
+                              },
+                              value: _selectedPost,
+                              isExpanded: true,
+                            )
+                          : Text("Нет доступных постов")),
                 ),
               ],
             ),
@@ -449,7 +552,7 @@ class _ConfigPageState extends State<ConfigPage> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Flexible(
-                  flex: 3,
+                  flex: 1,
                   child: Container(
                     width: double.maxFinite,
                   ),
@@ -459,8 +562,10 @@ class _ConfigPageState extends State<ConfigPage> {
                   child: SizedBox(
                     width: double.maxFinite,
                     child: ElevatedButton(
-                      onPressed: _savePost,
-                      child: const Text("Сохранить пост"),
+                      onPressed: _possiblePostsTitle.isNotEmpty ? _savePost : null,
+                      child: Text(
+                        _possiblePostsTitle.isNotEmpty ? "Сохранить пост" : "Нечего сохранять",
+                      ),
                     ),
                   ),
                 ),

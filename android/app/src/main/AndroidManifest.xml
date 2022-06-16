@@ -1,5 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.example.flutter_notifier">
+    package="com.diae.kronusol.flutter_notifier">
    <application
         android:label="flutter_notifier"
         android:name="${applicationName}"
@@ -41,4 +41,5 @@
     </application>
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.INTERNET"/>
 </manifest>

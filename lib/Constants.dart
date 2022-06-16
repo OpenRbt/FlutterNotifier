@@ -6,6 +6,7 @@ class Constants {
   static const String hostKey = "host";
   static const String pinKey = "pin";
   static const String postKey = "post_id";
+  static const String postTitleKey = "post";
   static const String targetPackage = "hr.asseco.android.kaspibusiness";
 }
 
@@ -13,7 +14,8 @@ class AppNotifierState {
   static ValueNotifier<AppNotifierState?> instance = ValueNotifier(null);
 
   late String host;
-  late int post;
+  late String post_id;
+  late String post;
   late String pin;
   late DefaultApi apiClient;
   bool canProcess = false;
@@ -21,13 +23,14 @@ class AppNotifierState {
   Future<void> Init() async {
     final prefs = await SharedPreferences.getInstance();
     host = prefs.getString(Constants.hostKey) ?? "";
-    post = prefs.getInt(Constants.postKey) ?? -1;
+    post_id = prefs.getString(Constants.postKey) ?? "";
+    post = prefs.getString(Constants.postTitleKey) ?? "";
     pin = prefs.getString(Constants.pinKey) ?? "";
     apiClient = DefaultApi(
       ApiClient(basePath: host),
     );
     apiClient.apiClient.addDefaultHeader("Pin", pin);
-    if (host == "" || post <= 0) {
+    if (host == "" || post.isEmpty) {
       canProcess = false;
     }
   }

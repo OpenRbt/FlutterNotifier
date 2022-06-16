@@ -1,4 +1,4 @@
-package com.example.flutter_notifier
+package com.diae.kronusol.flutter_notifier
 
 import io.flutter.embedding.android.FlutterActivity
 
