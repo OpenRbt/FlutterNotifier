@@ -33,13 +33,13 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  final extractRegex = RegExp(r"-?((\d+\s?)+)\s?₸");
+  final extractCleanRegex = RegExp(r"\s|₸");
+
   int extractAmountFromMessage(String message) {
     if (!message.contains("Оплата:")) return 0;
 
-    var suffix_pos = message.lastIndexOf("₸");
-    message = message.substring(0, suffix_pos >= 0 ? suffix_pos : null);
-
-    var cleaned = message.replaceAll("Оплата:", "").replaceAll("₸", "");
+    var cleaned = extractRegex.stringMatch(message)?.replaceAll(extractCleanRegex, "") ?? "";
     var res = int.tryParse(cleaned) ?? 0;
 
     return res < 0 ? 0 : res;
@@ -63,13 +63,25 @@ class _HomePageState extends State<HomePage> {
         notifications.value = List.from(
           notifications.value.length > 100 ? notifications.value.skip(1) : notifications.value,
         )..add(
-            NotificationListPanel(notificationEvent: event, Success: true, Amount: amount),
+            NotificationListPanel(
+              notificationEvent: event,
+              Success: true,
+              Amount: amount,
+              TargetPost: state?.post,
+              TargetPostHash: state?.post_id,
+            ),
           );
       } catch (e) {
         notifications.value = List.from(
           notifications.value.length > 100 ? notifications.value.skip(1) : notifications.value,
         )..add(
-            NotificationListPanel(notificationEvent: event, Success: false, Amount: amount),
+            NotificationListPanel(
+              notificationEvent: event,
+              Success: false,
+              Amount: amount,
+              TargetPost: state?.post,
+              TargetPostHash: state?.post_id,
+            ),
           );
       }
     }

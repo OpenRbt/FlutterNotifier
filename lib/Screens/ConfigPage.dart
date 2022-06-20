@@ -48,6 +48,37 @@ class _ConfigPageState extends State<ConfigPage> {
 
     var pin = _sharedPreferences?.getString(Constants.pinKey);
 
+    if (_host.value != null) {
+      DefaultApi api = DefaultApi(
+        ApiClient(
+          basePath: _host.value ?? "http://127.0.0.1",
+        ),
+      );
+      final res = await api.status().timeout(const Duration(seconds: 5));
+
+      var stations = (res?.stations.where((element) => element.hash != null).toList() ?? []);
+
+      if (res != null) {
+        if (stations.isNotEmpty) {
+          _possiblePostsTitle = List.generate(stations.length, (index) => stations[index].name ?? "");
+          _possiblePostsValue = List.generate(stations.length, (index) => stations[index].hash ?? "");
+          if (_post.value != null && !_possiblePostsValue.contains(_post.value ?? "")) {
+            _selectedPost = _possiblePostsValue.first;
+          }
+        } else {
+          _possiblePostsTitle = [];
+          _possiblePostsValue = [];
+        }
+
+        api.apiClient.addDefaultHeader(
+          "Pin",
+          pin ?? "",
+        );
+        final userInfo = await api.getUser();
+        _succesAuth = userInfo != null;
+      }
+    }
+
     setState(() {
       _selectedHost = _host.value ?? "";
       _selectedPost = _post.value ?? "";

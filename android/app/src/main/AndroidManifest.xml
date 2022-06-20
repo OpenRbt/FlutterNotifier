@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.diae.kronusol.flutter_notifier">
    <application
-        android:label="flutter_notifier"
+        android:label="Flutter Notifier"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
