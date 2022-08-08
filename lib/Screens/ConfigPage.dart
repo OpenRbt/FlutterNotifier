@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_notifier/ApiClient/api.dart';
 import 'package:flutter_notifier/Constants.dart';
 import 'package:network_info_plus/network_info_plus.dart';
+import 'package:optimize_battery/optimize_battery.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ConfigPage extends StatefulWidget {
@@ -16,7 +17,6 @@ class ConfigPage extends StatefulWidget {
 
 class _ConfigPageState extends State<ConfigPage> {
   SharedPreferences? _sharedPreferences;
-
   ValueNotifier<String> _scanRange = ValueNotifier("");
   ValueNotifier<String?> _host = ValueNotifier(null);
   ValueNotifier<String?> _post = ValueNotifier(null);
@@ -31,8 +31,9 @@ class _ConfigPageState extends State<ConfigPage> {
 
   int _pos = 0;
   bool _canScan = true;
+  bool _successAuth = false;
 
-  bool _succesAuth = false;
+  bool _isBatteryOptimizationDisabled = false;
 
   @override
   void initState() {
@@ -75,14 +76,17 @@ class _ConfigPageState extends State<ConfigPage> {
           pin ?? "",
         );
         final userInfo = await api.getUser();
-        _succesAuth = userInfo != null;
+        _successAuth = userInfo != null;
       }
     }
+
+    bool disabledBatteryOptimisation = await OptimizeBattery.isIgnoringBatteryOptimizations();
 
     setState(() {
       _selectedHost = _host.value ?? "";
       _selectedPost = _post.value ?? "";
       pinCodeController.text = pin ?? "";
+      _isBatteryOptimizationDisabled = disabledBatteryOptimisation;
       _canScan = true;
     });
   }
@@ -118,7 +122,7 @@ class _ConfigPageState extends State<ConfigPage> {
       0,
       localIp.lastIndexOf('.'),
     );
-    _scanRange.value = "${scanIP}.[___]";
+    _scanRange.value = "$scanIP.[___]";
 
     var targets = List.generate(256, (index) {
       return "$scanIP.$index";
@@ -155,7 +159,7 @@ class _ConfigPageState extends State<ConfigPage> {
             pinCodeController.value.text,
           );
           final userInfo = await api.getUser();
-          _succesAuth = userInfo != null;
+          _successAuth = userInfo != null;
 
           if (mounted) {
             setState(() {
@@ -167,7 +171,7 @@ class _ConfigPageState extends State<ConfigPage> {
         }
       } on ApiException catch (apiError) {
         if (apiError.code == HttpStatus.unauthorized) {
-          _succesAuth = false;
+          _successAuth = false;
         }
       } catch (e) {
         // print(e);
@@ -206,7 +210,7 @@ class _ConfigPageState extends State<ConfigPage> {
       0,
       localIp.lastIndexOf('.'),
     );
-    _scanRange.value = "${scanIP}.[___]";
+    _scanRange.value = "$scanIP.[___]";
 
     var targets = List.generate(256, (index) {
       return "$scanIP.$index";
@@ -243,11 +247,11 @@ class _ConfigPageState extends State<ConfigPage> {
             pinCodeController.value.text,
           );
           final userInfo = await api.getUser();
-          _succesAuth = userInfo != null;
+          _successAuth = userInfo != null;
         }
       } on ApiException catch (apiError) {
         if (apiError.code == HttpStatus.unauthorized) {
-          _succesAuth = false;
+          _successAuth = false;
         }
       } catch (e) {
         // print(e);
@@ -267,7 +271,7 @@ class _ConfigPageState extends State<ConfigPage> {
   }
 
   void _saveHost() {
-    if (_succesAuth) {
+    if (_successAuth) {
       _sharedPreferences?.setString(Constants.hostKey, _selectedHost);
       _sharedPreferences?.setString(Constants.pinKey, pinCodeController.value.text);
       _host.value = _selectedHost;
@@ -300,23 +304,27 @@ class _ConfigPageState extends State<ConfigPage> {
 
   @override
   Widget build(BuildContext context) {
+    TextTheme textTheme = Theme.of(context).textTheme;
+
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(
         title: const Text("Параметры"),
       ),
       body: Padding(
         padding: const EdgeInsets.all(8.0),
-        child: Column(
+        child: ListView(
           children: [
             Row(
               children: [
-                const Flexible(
+                Flexible(
                   flex: 1,
                   child: SizedBox(
                     width: double.maxFinite,
                     height: 30,
                     child: Text(
                       "Текущий хост:",
+                      style: textTheme.titleMedium,
                     ),
                   ),
                 ),
@@ -331,6 +339,7 @@ class _ConfigPageState extends State<ConfigPage> {
                         return Text(
                           value ?? "Не выбран",
                           textAlign: TextAlign.left,
+                          style: textTheme.bodyMedium,
                         );
                       },
                     ),
@@ -340,13 +349,14 @@ class _ConfigPageState extends State<ConfigPage> {
             ),
             Row(
               children: [
-                const Flexible(
+                Flexible(
                   flex: 1,
                   child: SizedBox(
                     width: double.maxFinite,
                     height: 30,
                     child: Text(
                       "Текущий пост:",
+                      style: textTheme.titleMedium,
                     ),
                   ),
                 ),
@@ -358,11 +368,10 @@ class _ConfigPageState extends State<ConfigPage> {
                     child: ValueListenableBuilder<String?>(
                       valueListenable: _postTitle,
                       builder: (BuildContext context, String? value, Widget? child) {
-                        return Container(
-                          child: Text(
-                            value ?? "Не выбран",
-                            textAlign: TextAlign.left,
-                          ),
+                        return Text(
+                          value ?? "Не выбран",
+                          textAlign: TextAlign.left,
+                          style: textTheme.bodyMedium,
                         );
                       },
                     ),
@@ -381,6 +390,7 @@ class _ConfigPageState extends State<ConfigPage> {
                           child: Text(
                             value ?? "Не выбран",
                             textAlign: TextAlign.right,
+                            style: textTheme.bodyMedium,
                           ),
                         );
                       },
@@ -393,19 +403,20 @@ class _ConfigPageState extends State<ConfigPage> {
               mainAxisSize: MainAxisSize.max,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                const Flexible(
+                Flexible(
                   flex: 1,
                   child: SizedBox(
                     width: double.maxFinite,
                     child: Text(
                       "PIN:",
                       textAlign: TextAlign.left,
+                      style: textTheme.titleMedium,
                     ),
                   ),
                 ),
                 Flexible(
                   flex: 2,
-                  child: Container(
+                  child: SizedBox(
                     width: double.maxFinite,
                     child: TextField(
                       controller: pinCodeController,
@@ -421,7 +432,7 @@ class _ConfigPageState extends State<ConfigPage> {
                       decoration: InputDecoration(
                         icon: Icon(
                           Icons.security,
-                          color: (_succesAuth && _canScan) ? Colors.green : Colors.red,
+                          color: (_successAuth && _canScan) ? Colors.green : Colors.red,
                         ),
                         hintText: "Введите пин...",
                         helperText: "Пин-код авторизации",
@@ -432,6 +443,11 @@ class _ConfigPageState extends State<ConfigPage> {
                 )
               ],
             ),
+            const Divider(),
+            Text(
+              "Сканирование",
+              style: textTheme.titleLarge,
+            ),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -441,7 +457,9 @@ class _ConfigPageState extends State<ConfigPage> {
                     width: double.maxFinite,
                     child: ElevatedButton(
                       onPressed: _canScan ? () => _scanQuick() : null,
-                      child: const Text("Быстрое сканирование"),
+                      child: const Text(
+                        "БЫСТРОЕ",
+                      ),
                     ),
                   ),
                 ),
@@ -455,7 +473,7 @@ class _ConfigPageState extends State<ConfigPage> {
                     width: double.maxFinite,
                     child: ElevatedButton(
                       onPressed: _canScan ? () => _scanStable() : null,
-                      child: const Text("Cканирование"),
+                      child: const Text("СТАНДАРТНОЕ"),
                     ),
                   ),
                 ),
@@ -464,13 +482,14 @@ class _ConfigPageState extends State<ConfigPage> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                const Flexible(
+                Flexible(
                   flex: 1,
                   child: SizedBox(
                     width: double.maxFinite,
                     height: 30,
                     child: Text(
                       "Поиск:",
+                      style: textTheme.titleMedium,
                     ),
                   ),
                 ),
@@ -485,6 +504,7 @@ class _ConfigPageState extends State<ConfigPage> {
                         return Text(
                           value,
                           textAlign: TextAlign.left,
+                          style: textTheme.bodyMedium,
                         );
                       },
                     ),
@@ -501,14 +521,14 @@ class _ConfigPageState extends State<ConfigPage> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                const Flexible(
+                Flexible(
                   flex: 1,
                   child: SizedBox(
                     width: double.maxFinite,
                     height: 30,
                     child: Text(
                       "Сервер: ",
-                      textAlign: TextAlign.left,
+                      style: textTheme.titleMedium,
                     ),
                   ),
                 ),
@@ -519,6 +539,7 @@ class _ConfigPageState extends State<ConfigPage> {
                     height: 30,
                     child: Text(
                       _selectedHost,
+                      style: textTheme.bodyMedium,
                     ),
                   ),
                 ),
@@ -537,8 +558,8 @@ class _ConfigPageState extends State<ConfigPage> {
                   child: SizedBox(
                     width: double.maxFinite,
                     child: ElevatedButton(
-                      onPressed: (_succesAuth && _canScan) ? _saveHost : null,
-                      child: Text(_succesAuth ? "Сохранить" : "Авторизация не пройдена"),
+                      onPressed: (_successAuth && _canScan) ? _saveHost : null,
+                      child: Text(_successAuth ? "ВЫБРАТЬ" : "НЕ АВТОРИЗОВАН"),
                     ),
                   ),
                 ),
@@ -547,35 +568,43 @@ class _ConfigPageState extends State<ConfigPage> {
             const Divider(),
             Row(
               children: [
-                const Flexible(
+                Flexible(
                   flex: 1,
                   child: SizedBox(
                     width: double.maxFinite,
-                    child: Text("Пост: "),
+                    child: Text(
+                      "Пост: ",
+                      style: textTheme.titleMedium,
+                    ),
                   ),
                 ),
                 Flexible(
                   flex: 2,
                   child: SizedBox(
-                      width: double.maxFinite,
-                      child: _possiblePostsValue.isNotEmpty
-                          ? DropdownButton<String>(
-                              items: List.generate(
-                                _possiblePostsTitle.length,
-                                (index) => DropdownMenuItem(
-                                  value: _possiblePostsValue[index],
-                                  child: Text(
-                                    _possiblePostsTitle[index],
-                                  ),
+                    width: double.maxFinite,
+                    child: _possiblePostsValue.isNotEmpty
+                        ? DropdownButton<String>(
+                            items: List.generate(
+                              _possiblePostsTitle.length,
+                              (index) => DropdownMenuItem(
+                                value: _possiblePostsValue[index],
+                                child: Text(
+                                  _possiblePostsTitle[index],
+                                  style: textTheme.bodyMedium,
                                 ),
                               ),
-                              onChanged: (newValue) {
-                                setState(() => {_selectedPost = newValue ?? ""});
-                              },
-                              value: _selectedPost,
-                              isExpanded: true,
-                            )
-                          : Text("Нет доступных постов")),
+                            ),
+                            onChanged: (newValue) {
+                              setState(() => {_selectedPost = newValue ?? ""});
+                            },
+                            value: _selectedPost,
+                            isExpanded: true,
+                          )
+                        : Text(
+                            "Нет доступных постов",
+                            style: textTheme.bodyMedium,
+                          ),
+                  ),
                 ),
               ],
             ),
@@ -595,9 +624,50 @@ class _ConfigPageState extends State<ConfigPage> {
                     child: ElevatedButton(
                       onPressed: _possiblePostsTitle.isNotEmpty ? _savePost : null,
                       child: Text(
-                        _possiblePostsTitle.isNotEmpty ? "Сохранить пост" : "Нечего сохранять",
+                        _possiblePostsTitle.isNotEmpty ? "ВЫБРАТЬ" : "НЕТ ПОСТОВ",
                       ),
                     ),
+                  ),
+                ),
+              ],
+            ),
+            const Divider(),
+            Text(
+              "Запрет оптимизации работы батареи",
+              style: textTheme.titleLarge,
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: _isBatteryOptimizationDisabled
+                      ? null
+                      : () async {
+                          bool disabledOptimisation = await OptimizeBattery.isIgnoringBatteryOptimizations();
+
+                          if (!disabledOptimisation) {
+                            OptimizeBattery.openBatteryOptimizationSettings();
+                          }
+                          setState(() {
+                            _isBatteryOptimizationDisabled = disabledOptimisation;
+                          });
+                        },
+                  icon: const Icon(Icons.settings),
+                  label: Text(
+                    _isBatteryOptimizationDisabled ? "ОТКЛЮЧЕНА" : "ОТКЛЮЧИТЬ",
+                  ),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    bool disabledOptimisation = await OptimizeBattery.isIgnoringBatteryOptimizations();
+
+                    setState(() {
+                      _isBatteryOptimizationDisabled = disabledOptimisation;
+                    });
+                  },
+                  icon: const Icon(Icons.refresh),
+                  label: const Text(
+                    "СТАТУС",
                   ),
                 ),
               ],

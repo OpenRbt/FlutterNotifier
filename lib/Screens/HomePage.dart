@@ -13,23 +13,14 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   bool started = false;
-  bool _loading = false;
-
+  bool _restarting = false;
   ValueNotifier<int> _totalNotificationHandled = ValueNotifier(0);
 
-  ValueNotifier<List<NotificationListPanel>> notifications = ValueNotifier([
-    // NotificationListPanel(
-    //   notificationEvent: NotificationEvent(text: "Оплата: 100₸", title: "Пример уведомления"),
-    //   Success: true,
-    //   Amount: 100,
-    //   TargetPost: "TestPost",
-    //   TargetPostHash: "00:00:00:00:00",
-    // )
-  ]);
+  ValueNotifier<List<NotificationListPanel>> notifications = ValueNotifier([]);
 
   void onData(NotificationEvent event) {
     if (event.packageName == Constants.targetPackage) {
-      ProcessPost(event);
+      processPost(event);
     }
   }
 
@@ -45,7 +36,7 @@ class _HomePageState extends State<HomePage> {
     return res < 0 ? 0 : res;
   }
 
-  void ProcessPost(NotificationEvent event) {
+  void processPost(NotificationEvent event) {
     if ((event.packageName ?? "") == Constants.targetPackage) {
       _totalNotificationHandled.value = _totalNotificationHandled.value + 1;
 
@@ -59,31 +50,33 @@ class _HomePageState extends State<HomePage> {
             amount: extractAmountFromMessage(event.text ?? ""),
           ),
         );
-
-        notifications.value = List.from(
-          notifications.value.length > 100 ? notifications.value.skip(1) : notifications.value,
-        )..add(
-            NotificationListPanel(
-              notificationEvent: event,
-              Success: true,
-              Amount: amount,
-              TargetPost: state?.post,
-              TargetPostHash: state?.post_id,
-            ),
-          );
+        notifications.value.add(
+          NotificationListPanel(
+            notificationEvent: event,
+            Success: true,
+            Amount: amount,
+            TargetPost: state?.post,
+            TargetPostHash: state?.post_id,
+          ),
+        );
+        if (notifications.value.length > 100) {
+          notifications.value.removeAt(0);
+        }
       } catch (e) {
-        notifications.value = List.from(
-          notifications.value.length > 100 ? notifications.value.skip(1) : notifications.value,
-        )..add(
-            NotificationListPanel(
-              notificationEvent: event,
-              Success: false,
-              Amount: amount,
-              TargetPost: state?.post,
-              TargetPostHash: state?.post_id,
-            ),
-          );
+        notifications.value.add(
+          NotificationListPanel(
+            notificationEvent: event,
+            Success: false,
+            Amount: amount,
+            TargetPost: state?.post,
+            TargetPostHash: state?.post_id,
+          ),
+        );
+        if (notifications.value.length > 100) {
+          notifications.value.removeAt(0);
+        }
       }
+      notifications.notifyListeners();
     }
   }
 
@@ -106,7 +99,7 @@ class _HomePageState extends State<HomePage> {
     AppNotifierState.instance.value = newInstance;
   }
 
-  void startListening() async {
+  Future<void> startListening() async {
     var hasPermission = await NotificationsListener.hasPermission;
     if (!(hasPermission ?? false)) {
       NotificationsListener.openPermissionSettings();
@@ -114,7 +107,6 @@ class _HomePageState extends State<HomePage> {
     }
 
     var isR = await NotificationsListener.isRunning;
-
     if (!(isR ?? false)) {
       await NotificationsListener.startService(
         foreground: true,
@@ -123,24 +115,20 @@ class _HomePageState extends State<HomePage> {
       );
     }
 
-    setState(() => started = true);
+    setState(() => {started = true, _restarting = false});
   }
 
-  void stopListening() async {
-    setState(() {
-      _loading = true;
-    });
-
+  Future<void> stopListening() async {
     await NotificationsListener.stopService();
 
     setState(() {
       started = false;
-      _loading = false;
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    TextTheme textTheme = Theme.of(context).textTheme;
     return Scaffold(
       appBar: AppBar(
         title: const Text("Flutter Notifier"),
@@ -160,45 +148,196 @@ class _HomePageState extends State<HomePage> {
       ),
       body: Column(
         mainAxisSize: MainAxisSize.max,
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ValueListenableBuilder<AppNotifierState?>(
-            valueListenable: AppNotifierState.instance,
-            builder: (BuildContext context, AppNotifierState? value, Widget? child) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(5),
-                    child: Text(
-                      "Текущий хост: ${value?.host ?? "Не выбран"}",
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.all(5),
-                    child: Text(
-                      "Текущий пост: ${value?.post ?? "Не выбран"}",
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-          ValueListenableBuilder<int>(
-            valueListenable: _totalNotificationHandled,
-            builder: (BuildContext context, int value, Widget? child) {
-              return Container(
-                padding: const EdgeInsets.all(5),
-                child: Text(
-                  "Обработано уведомлений: $value",
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black45,
+                  blurRadius: 1,
+                  offset: Offset(0, 1),
                 ),
-              );
-            },
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ValueListenableBuilder<AppNotifierState?>(
+                  valueListenable: AppNotifierState.instance,
+                  builder: (BuildContext context, AppNotifierState? value, Widget? child) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              flex: 1,
+                              child: SizedBox(
+                                width: double.maxFinite,
+                                child: Text(
+                                  "Текущий хост:",
+                                  style: textTheme.titleMedium,
+                                ),
+                              ),
+                            ),
+                            Flexible(
+                              flex: 2,
+                              child: SizedBox(
+                                width: double.maxFinite,
+                                child: Text(
+                                  value?.host ?? "Не выбран",
+                                  style: textTheme.bodyMedium,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        Row(
+                          children: [
+                            Flexible(
+                              flex: 1,
+                              child: SizedBox(
+                                width: double.maxFinite,
+                                child: Text(
+                                  "Текущий пост:",
+                                  style: textTheme.titleMedium,
+                                ),
+                              ),
+                            ),
+                            Flexible(
+                              flex: 2,
+                              child: SizedBox(
+                                width: double.maxFinite,
+                                child: Text(
+                                  value?.post ?? "Не выбран",
+                                  style: textTheme.bodyMedium,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    );
+                  },
+                ),
+                Row(
+                  children: [
+                    Flexible(
+                      flex: 2,
+                      child: SizedBox(
+                        width: double.maxFinite,
+                        child: Text(
+                          "Мониторинг уведомлений:",
+                          style: textTheme.titleMedium,
+                        ),
+                      ),
+                    ),
+                    Flexible(
+                      flex: 1,
+                      child: SizedBox(
+                        width: double.maxFinite,
+                        child: Center(
+                          child: Icon(
+                            Icons.circle,
+                            color: started ? Colors.green : Colors.red,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Flexible(
+                      flex: 3,
+                      child: SizedBox(
+                        width: double.maxFinite,
+                        child: OutlinedButton(
+                          onPressed: () {
+                            showDialog(
+                              barrierDismissible: false,
+                              context: context,
+                              builder: (BuildContext ctx) {
+                                return StatefulBuilder(
+                                  builder: (context, setState) {
+                                    return AlertDialog(
+                                      scrollable: true,
+                                      title: const Text("Перезапустить сервис?"),
+                                      content: Center(
+                                        child: _restarting ? const CircularProgressIndicator() : null,
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: _restarting
+                                              ? null
+                                              : () {
+                                                  Navigator.of(context).pop();
+                                                },
+                                          child: const Text("НЕТ"),
+                                        ),
+                                        ElevatedButton(
+                                          onPressed: _restarting
+                                              ? null
+                                              : () async {
+                                                  _restarting = true;
+                                                  setState(() {});
+                                                  await stopListening();
+                                                  await Future.delayed(const Duration(seconds: 3), () {});
+                                                  await startListening();
+                                                  setState(() {
+                                                    Navigator.of(context).pop();
+                                                  });
+                                                },
+                                          child: const Text("ДА"),
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                );
+                              },
+                            );
+                          },
+                          child: const Text(
+                            "ПЕРЕЗАПУСТИТЬ",
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                ValueListenableBuilder<int>(
+                  valueListenable: _totalNotificationHandled,
+                  builder: (BuildContext context, int value, Widget? child) {
+                    return Row(
+                      children: [
+                        Flexible(
+                          flex: 1,
+                          child: SizedBox(
+                            width: double.maxFinite,
+                            child: Text(
+                              "Обработано уведомлений:",
+                              style: textTheme.titleMedium,
+                            ),
+                          ),
+                        ),
+                        Flexible(
+                          flex: 2,
+                          child: SizedBox(
+                            width: double.maxFinite,
+                            child: Text(
+                              "$value",
+                              style: textTheme.titleMedium,
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
           ),
-          Divider(),
           Expanded(
             child: Container(
-              padding: EdgeInsets.all(8),
+              padding: const EdgeInsets.all(4),
               child: ValueListenableBuilder(
                 valueListenable: notifications,
                 builder: (BuildContext context, List<NotificationListPanel> list, Widget? child) => ListView.builder(
@@ -210,13 +349,6 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-      floatingActionButton: started
-          ? null
-          : FloatingActionButton(
-              onPressed: startListening,
-              tooltip: 'Начать мониторинг',
-              child: const Icon(Icons.play_arrow),
-            ),
     );
   }
 }

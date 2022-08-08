@@ -13,24 +13,24 @@ class Constants {
 class AppNotifierState {
   static ValueNotifier<AppNotifierState?> instance = ValueNotifier(null);
 
-  late String host;
-  late String post_id;
-  late String post;
-  late String pin;
+  late String? host;
+  late String? post_id;
+  late String? post;
+  late String? pin;
   late DefaultApi apiClient;
   bool canProcess = false;
 
   Future<void> Init() async {
     final prefs = await SharedPreferences.getInstance();
-    host = prefs.getString(Constants.hostKey) ?? "";
-    post_id = prefs.getString(Constants.postKey) ?? "";
-    post = prefs.getString(Constants.postTitleKey) ?? "";
-    pin = prefs.getString(Constants.pinKey) ?? "";
+    host = prefs.getString(Constants.hostKey);
+    post_id = prefs.getString(Constants.postKey);
+    post = prefs.getString(Constants.postTitleKey);
+    pin = prefs.getString(Constants.pinKey);
     apiClient = DefaultApi(
-      ApiClient(basePath: host),
+      ApiClient(basePath: host ?? ""),
     );
-    apiClient.apiClient.addDefaultHeader("Pin", pin);
-    if (host == "" || post.isEmpty) {
+    apiClient.apiClient.addDefaultHeader("Pin", pin ?? "");
+    if (host == "" || ((post ?? "").isEmpty)) {
       canProcess = false;
     }
   }
