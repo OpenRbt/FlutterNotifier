@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_notifier/ApiClient/api.dart';
@@ -42,6 +43,10 @@ class _ConfigPageState extends State<ConfigPage> {
   }
 
   void init() async {
+    if (AppNotifierState.instance.value == null) {
+      await AppNotifierState.updateInstance();
+    }
+
     _sharedPreferences = await SharedPreferences.getInstance();
     _host.value = _sharedPreferences?.getString(Constants.hostKey);
     _post.value = _sharedPreferences?.getString(Constants.postKey);
@@ -254,7 +259,7 @@ class _ConfigPageState extends State<ConfigPage> {
           _successAuth = false;
         }
       } catch (e) {
-        // print(e);
+        if (kDebugMode) print(e);
       }
 
       if (_pos == 255) {
@@ -276,7 +281,6 @@ class _ConfigPageState extends State<ConfigPage> {
       _sharedPreferences?.setString(Constants.pinKey, pinCodeController.value.text);
       _host.value = _selectedHost;
     }
-    _updateInstance();
   }
 
   void _savePost() {
@@ -292,14 +296,6 @@ class _ConfigPageState extends State<ConfigPage> {
     _sharedPreferences?.setString(Constants.postKey, _selectedPost);
     _post.value = _selectedPost;
     _postTitle.value = title;
-
-    _updateInstance();
-  }
-
-  void _updateInstance() async {
-    AppNotifierState newInstance = AppNotifierState();
-    await newInstance.Init();
-    AppNotifierState.instance.value = newInstance;
   }
 
   @override

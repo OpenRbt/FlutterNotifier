@@ -20,7 +20,7 @@ class AppNotifierState {
   late DefaultApi apiClient;
   bool canProcess = false;
 
-  Future<void> Init() async {
+  Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
     host = prefs.getString(Constants.hostKey);
     post_id = prefs.getString(Constants.postKey);
@@ -33,5 +33,11 @@ class AppNotifierState {
     if (host == "" || ((post ?? "").isEmpty)) {
       canProcess = false;
     }
+  }
+
+  static Future<void> updateInstance() async {
+    AppNotifierState newInstance = AppNotifierState();
+    await newInstance.init();
+    AppNotifierState.instance.value = newInstance;
   }
 }

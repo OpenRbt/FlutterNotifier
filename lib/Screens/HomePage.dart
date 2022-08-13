@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_notification_listener/flutter_notification_listener.dart';
-import 'package:flutter_notifier/ApiClient/api.dart';
 import 'package:flutter_notifier/Constants.dart';
+import 'package:flutter_notifier/NotifierService.dart';
 import 'package:flutter_notifier/Screens/ConfigPage.dart';
 import 'package:flutter_notifier/Widgets/NotificationListPanel.dart';
 
@@ -12,118 +12,68 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  bool started = false;
+  ValueNotifier<bool> started = ValueNotifier(false);
   bool _restarting = false;
   ValueNotifier<int> _totalNotificationHandled = ValueNotifier(0);
 
   ValueNotifier<List<NotificationListPanel>> notifications = ValueNotifier([]);
 
   void onData(NotificationEvent event) {
-    if (event.packageName == Constants.targetPackage) {
-      processPost(event);
+    // if ((event.packageName ?? "") != Constants.targetPackage) return;
+
+    _totalNotificationHandled.value = _totalNotificationHandled.value + 1;
+    var lastProcessedEvent = NotifierService.lastEvents.last;
+    notifications.value.add(
+      NotificationListPanel(
+        notificationEvent: lastProcessedEvent.event,
+        Success: lastProcessedEvent.Success,
+        Amount: lastProcessedEvent.Amount,
+        TargetPost: lastProcessedEvent.TargetPost,
+        TargetPostHash: lastProcessedEvent.TargetHash,
+      ),
+    );
+    notifications.notifyListeners();
+  }
+
+  Future<void> init() async {
+    if (NotifierService.instance == null) {
+      await NotifierService.init();
     }
-  }
-
-  final extractRegex = RegExp(r"-?((\d+\s?)+)\s?₸");
-  final extractCleanRegex = RegExp(r"\s|₸");
-
-  int extractAmountFromMessage(String message) {
-    if (!message.contains("Оплата:")) return 0;
-
-    var cleaned = extractRegex.stringMatch(message)?.replaceAll(extractCleanRegex, "") ?? "";
-    var res = int.tryParse(cleaned) ?? 0;
-
-    return res < 0 ? 0 : res;
-  }
-
-  void processPost(NotificationEvent event) {
-    if ((event.packageName ?? "") == Constants.targetPackage) {
-      _totalNotificationHandled.value = _totalNotificationHandled.value + 1;
-
-      var state = AppNotifierState.instance.value;
-
-      var amount = extractAmountFromMessage(event.text ?? "");
-      try {
-        state?.apiClient.addServiceAmount(
-          ArgAddServiceAmount(
-            hash: state.post_id,
-            amount: extractAmountFromMessage(event.text ?? ""),
-          ),
-        );
-        notifications.value.add(
-          NotificationListPanel(
-            notificationEvent: event,
-            Success: true,
-            Amount: amount,
-            TargetPost: state?.post,
-            TargetPostHash: state?.post_id,
-          ),
-        );
-        if (notifications.value.length > 100) {
-          notifications.value.removeAt(0);
-        }
-      } catch (e) {
-        notifications.value.add(
-          NotificationListPanel(
-            notificationEvent: event,
-            Success: false,
-            Amount: amount,
-            TargetPost: state?.post,
-            TargetPostHash: state?.post_id,
-          ),
-        );
-        if (notifications.value.length > 100) {
-          notifications.value.removeAt(0);
-        }
-      }
-      notifications.notifyListeners();
-    }
-  }
-
-  Future<void> initPlatformState() async {
-    NotificationsListener.initialize();
-    NotificationsListener.receivePort?.listen((evt) => {onData(evt)});
+    NotifierService.instance?.Port.listen((evt) => onData(evt));
     startListening();
   }
 
   @override
   void initState() {
-    _initInstance();
-    initPlatformState();
+    init();
+    if (NotifierService.lastEvents.isNotEmpty) loadEventsInfo();
     super.initState();
   }
 
-  void _initInstance() async {
-    AppNotifierState newInstance = AppNotifierState();
-    await newInstance.Init();
-    AppNotifierState.instance.value = newInstance;
+  Future<void> loadEventsInfo() async {
+    for (var event in NotifierService.lastEvents) {
+      notifications.value.add(
+        NotificationListPanel(
+          notificationEvent: event.event,
+          Success: event.Success,
+          Amount: event.Amount,
+          TargetPost: event.TargetPost,
+          TargetPostHash: event.TargetHash,
+        ),
+      );
+    }
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> startListening() async {
-    var hasPermission = await NotificationsListener.hasPermission;
-    if (!(hasPermission ?? false)) {
-      NotificationsListener.openPermissionSettings();
-      return;
-    }
-
-    var isR = await NotificationsListener.isRunning;
-    if (!(isR ?? false)) {
-      await NotificationsListener.startService(
-        foreground: true,
-        title: "FlutterNotifier",
-        description: "Мониторинг уведомлений активен",
-      );
-    }
-
-    setState(() => {started = true, _restarting = false});
+    started.value = await NotifierService.startService();
+    if (mounted) setState(() => {_restarting = false});
   }
 
   Future<void> stopListening() async {
-    await NotificationsListener.stopService();
-
-    setState(() {
-      started = false;
-    });
+    started.value = !(await NotifierService.stopService());
   }
 
   @override
@@ -140,7 +90,7 @@ class _HomePageState extends State<HomePage> {
                 MaterialPageRoute(
                   builder: (BuildContext context) => const ConfigPage(),
                 ),
-              ).then((value) => setState(() {}));
+              ).then((value) => AppNotifierState.instance.notifyListeners());
             },
             icon: const Icon(Icons.settings),
           )
@@ -239,9 +189,14 @@ class _HomePageState extends State<HomePage> {
                       child: SizedBox(
                         width: double.maxFinite,
                         child: Center(
-                          child: Icon(
-                            Icons.circle,
-                            color: started ? Colors.green : Colors.red,
+                          child: ValueListenableBuilder(
+                            valueListenable: started,
+                            builder: (BuildContext context, bool value, Widget? tmp) {
+                              return Icon(
+                                Icons.circle,
+                                color: value ? Colors.green : Colors.red,
+                              );
+                            },
                           ),
                         ),
                       ),
