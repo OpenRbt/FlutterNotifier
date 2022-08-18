@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_notification_listener/flutter_notification_listener.dart';
-import 'package:flutter_notifier/Constants.dart';
-import 'package:flutter_notifier/NotifierService.dart';
-import 'package:flutter_notifier/Screens/ConfigPage.dart';
-import 'package:flutter_notifier/Widgets/NotificationListPanel.dart';
+import 'package:flutter_notifier/Models/notification_event_log.dart';
+import 'package:flutter_notifier/Pages/config_page.dart';
+import 'package:flutter_notifier/Widgets/notification_list_panel.dart';
+import 'package:flutter_notifier/hive_helpers.dart';
+import 'package:flutter_notifier/notifier_service.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({Key? key}) : super(key: key);
@@ -14,57 +15,15 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   ValueNotifier<bool> started = ValueNotifier(false);
   bool _restarting = false;
-  ValueNotifier<int> _totalNotificationHandled = ValueNotifier(0);
-
-  ValueNotifier<List<NotificationListPanel>> notifications = ValueNotifier([]);
-
-  void onData(NotificationEvent event) {
-    // if ((event.packageName ?? "") != Constants.targetPackage) return;
-
-    _totalNotificationHandled.value = _totalNotificationHandled.value + 1;
-    var lastProcessedEvent = NotifierService.lastEvents.last;
-    notifications.value.add(
-      NotificationListPanel(
-        notificationEvent: lastProcessedEvent.event,
-        Success: lastProcessedEvent.Success,
-        Amount: lastProcessedEvent.Amount,
-        TargetPost: lastProcessedEvent.TargetPost,
-        TargetPostHash: lastProcessedEvent.TargetHash,
-      ),
-    );
-    notifications.notifyListeners();
-  }
 
   Future<void> init() async {
-    if (NotifierService.instance == null) {
-      await NotifierService.init();
-    }
-    NotifierService.instance?.Port.listen((evt) => onData(evt));
     startListening();
   }
 
   @override
   void initState() {
     init();
-    if (NotifierService.lastEvents.isNotEmpty) loadEventsInfo();
     super.initState();
-  }
-
-  Future<void> loadEventsInfo() async {
-    for (var event in NotifierService.lastEvents) {
-      notifications.value.add(
-        NotificationListPanel(
-          notificationEvent: event.event,
-          Success: event.Success,
-          Amount: event.Amount,
-          TargetPost: event.TargetPost,
-          TargetPostHash: event.TargetHash,
-        ),
-      );
-    }
-    if (mounted) {
-      setState(() {});
-    }
   }
 
   Future<void> startListening() async {
@@ -90,7 +49,7 @@ class _HomePageState extends State<HomePage> {
                 MaterialPageRoute(
                   builder: (BuildContext context) => const ConfigPage(),
                 ),
-              ).then((value) => AppNotifierState.instance.notifyListeners());
+              );
             },
             icon: const Icon(Icons.settings),
           )
@@ -100,7 +59,7 @@ class _HomePageState extends State<HomePage> {
         mainAxisSize: MainAxisSize.max,
         children: [
           Container(
-            padding: const EdgeInsets.all(4),
+            padding: const EdgeInsets.all(8),
             decoration: const BoxDecoration(
               color: Colors.white,
               boxShadow: [
@@ -114,9 +73,9 @@ class _HomePageState extends State<HomePage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                ValueListenableBuilder<AppNotifierState?>(
-                  valueListenable: AppNotifierState.instance,
-                  builder: (BuildContext context, AppNotifierState? value, Widget? child) {
+                ValueListenableBuilder<Box<dynamic>>(
+                  valueListenable: Hive.box(hiveConfigBox).listenable(keys: [hostKey, postKey]),
+                  builder: (BuildContext context, Box<dynamic> config, Widget? child) {
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -124,8 +83,10 @@ class _HomePageState extends State<HomePage> {
                           children: [
                             Flexible(
                               flex: 1,
-                              child: SizedBox(
-                                width: double.maxFinite,
+                              fit: FlexFit.tight,
+                              child: FittedBox(
+                                alignment: Alignment.centerLeft,
+                                fit: BoxFit.scaleDown,
                                 child: Text(
                                   "Текущий хост:",
                                   style: textTheme.titleMedium,
@@ -134,10 +95,12 @@ class _HomePageState extends State<HomePage> {
                             ),
                             Flexible(
                               flex: 2,
-                              child: SizedBox(
-                                width: double.maxFinite,
+                              fit: FlexFit.tight,
+                              child: FittedBox(
+                                alignment: Alignment.centerRight,
+                                fit: BoxFit.scaleDown,
                                 child: Text(
-                                  value?.host ?? "Не выбран",
+                                  (config.get(hostKey)) ?? "Не выбран",
                                   style: textTheme.bodyMedium,
                                 ),
                               ),
@@ -148,8 +111,10 @@ class _HomePageState extends State<HomePage> {
                           children: [
                             Flexible(
                               flex: 1,
-                              child: SizedBox(
-                                width: double.maxFinite,
+                              fit: FlexFit.tight,
+                              child: FittedBox(
+                                alignment: Alignment.centerLeft,
+                                fit: BoxFit.scaleDown,
                                 child: Text(
                                   "Текущий пост:",
                                   style: textTheme.titleMedium,
@@ -157,11 +122,25 @@ class _HomePageState extends State<HomePage> {
                               ),
                             ),
                             Flexible(
-                              flex: 2,
-                              child: SizedBox(
-                                width: double.maxFinite,
+                              flex: 1,
+                              fit: FlexFit.tight,
+                              child: FittedBox(
+                                alignment: Alignment.centerLeft,
+                                fit: BoxFit.scaleDown,
                                 child: Text(
-                                  value?.post ?? "Не выбран",
+                                  (config.get(postTitleKey)) ?? "Не выбран",
+                                  style: textTheme.bodyMedium,
+                                ),
+                              ),
+                            ),
+                            Flexible(
+                              flex: 1,
+                              fit: FlexFit.tight,
+                              child: FittedBox(
+                                alignment: Alignment.centerRight,
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  (config.get(postKey)) ?? "Не выбран",
                                   style: textTheme.bodyMedium,
                                 ),
                               ),
@@ -173,38 +152,41 @@ class _HomePageState extends State<HomePage> {
                   },
                 ),
                 Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Flexible(
                       flex: 2,
-                      child: SizedBox(
-                        width: double.maxFinite,
+                      fit: FlexFit.tight,
+                      child: FittedBox(
+                        alignment: Alignment.centerLeft,
+                        fit: BoxFit.scaleDown,
                         child: Text(
-                          "Мониторинг уведомлений:",
+                          "Мониторинг:",
                           style: textTheme.titleMedium,
                         ),
                       ),
                     ),
                     Flexible(
                       flex: 1,
-                      child: SizedBox(
-                        width: double.maxFinite,
-                        child: Center(
-                          child: ValueListenableBuilder(
-                            valueListenable: started,
-                            builder: (BuildContext context, bool value, Widget? tmp) {
-                              return Icon(
-                                Icons.circle,
-                                color: value ? Colors.green : Colors.red,
-                              );
-                            },
-                          ),
+                      fit: FlexFit.tight,
+                      child: Center(
+                        child: ValueListenableBuilder(
+                          valueListenable: started,
+                          builder: (BuildContext context, bool value, Widget? tmp) {
+                            return Icon(
+                              Icons.circle,
+                              color: value ? Colors.green : Colors.red,
+                            );
+                          },
                         ),
                       ),
                     ),
                     Flexible(
                       flex: 3,
-                      child: SizedBox(
-                        width: double.maxFinite,
+                      fit: FlexFit.tight,
+                      child: FittedBox(
+                        alignment: Alignment.centerRight,
+                        fit: BoxFit.scaleDown,
                         child: OutlinedButton(
                           onPressed: () {
                             showDialog(
@@ -258,34 +240,35 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ],
                 ),
-                ValueListenableBuilder<int>(
-                  valueListenable: _totalNotificationHandled,
-                  builder: (BuildContext context, int value, Widget? child) {
+                ValueListenableBuilder(
+                  valueListenable: Hive.box(hiveLogsBox).listenable(),
+                  builder: (BuildContext context, Box<dynamic> box, Widget? child) {
                     return Row(
                       children: [
-                        Flexible(
-                          flex: 1,
-                          child: SizedBox(
-                            width: double.maxFinite,
-                            child: Text(
-                              "Обработано уведомлений:",
-                              style: textTheme.titleMedium,
-                            ),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            "Обработано уведомлений:",
+                            style: textTheme.titleMedium,
                           ),
                         ),
-                        Flexible(
-                          flex: 2,
-                          child: SizedBox(
-                            width: double.maxFinite,
-                            child: Text(
-                              "$value",
-                              style: textTheme.titleMedium,
-                            ),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            "${box.get(notificationTotalKey)}",
+                            style: textTheme.titleMedium,
                           ),
                         ),
                       ],
                     );
                   },
+                ),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    "Последние уведомления за 24 часа:",
+                    style: textTheme.titleLarge,
+                  ),
                 ),
               ],
             ),
@@ -294,10 +277,12 @@ class _HomePageState extends State<HomePage> {
             child: Container(
               padding: const EdgeInsets.all(4),
               child: ValueListenableBuilder(
-                valueListenable: notifications,
-                builder: (BuildContext context, List<NotificationListPanel> list, Widget? child) => ListView.builder(
-                  itemCount: notifications.value.length,
-                  itemBuilder: (BuildContext context, int index) => notifications.value[index],
+                valueListenable: Hive.box(hiveLogsBox).listenable(),
+                builder: (BuildContext context, Box<dynamic> box, Widget? child) => ListView.separated(
+                  physics: const BouncingScrollPhysics(),
+                  itemCount: (box.get(logKey)).length,
+                  itemBuilder: (BuildContext context, int index) => NotificationListPanel.fromNotificationEventLog((box.get(logKey)[index]) as NotificationEventLog),
+                  separatorBuilder: (BuildContext context, int index) => const Divider(),
                 ),
               ),
             ),
