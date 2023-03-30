@@ -1,82 +1,35 @@
+import 'dart:async';
 import 'dart:isolate';
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_notification_listener/flutter_notification_listener.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_notifier/ApiClient/api.dart';
-import 'package:flutter_notifier/Models/notification_event_log.dart';
-import 'package:flutter_notifier/hive_helpers.dart';
-import 'package:hive_flutter/hive_flutter.dart';
+import 'package:flutter_notifier/internal/entity/entity.dart' as entity;
+import 'package:flutter_notifier/internal/repository/isar/dbmodels/config.dart';
+import 'package:flutter_notifier/internal/repository/isar/dbmodels/status.dart';
+import 'package:flutter_notifier/internal/repository/isar/repository.dart';
+import 'package:notification_listener_service/notification_event.dart';
+import 'package:notification_listener_service/notification_listener_service.dart';
+
+import 'internal/entity/entity.dart';
 
 const String targetPackage = "hr.asseco.android.kaspibusiness";
 
+//TODO: merge this classes
+
 class NotifierService {
-  static NotifierService? instance;
-  ReceivePort receivePort = ReceivePort();
-  late DefaultApi apiClient;
+  static ReceivePort receivePort = ReceivePort();
+  static DefaultApi? apiClient;
+  static IsarRepository? repo;
 
-  static Future<void> init() async {
-    await initHive();
+  @pragma('vm:entry-point')
+  static void callback(ServiceNotificationEvent event) {
+    repo ??= IsarRepository();
 
-    var config = Hive.box(hiveConfigBox);
-
-    NotifierService.instance = NotifierService();
-
-    var apiClient = DefaultApi(
-      ApiClient(basePath: config.get(hostKey) ?? ""),
-    );
-    apiClient.apiClient.addDefaultHeader("Pin", config.get(pinKey) ?? "");
-    NotifierService.instance!.apiClient = apiClient;
-
-    IsolateNameServer.removePortNameMapping("_listener_");
-    IsolateNameServer.registerPortWithName(instance!.receivePort.sendPort, "_listener_");
-    await initPlatformState();
-  }
-
-  static Future<void> initPlatformState() async {
-    NotificationsListener.initialize(callbackHandle: _callback);
-  }
-
-  static Future<bool> startService() async {
-    var hasPermission = await NotificationsListener.hasPermission;
-    if (!(hasPermission ?? false)) {
-      NotificationsListener.openPermissionSettings();
-      return false;
-    }
-
-    var isR = await NotificationsListener.isRunning;
-
-    if (isR ?? false) return true;
-
-    return await NotificationsListener.startService(
-          foreground: true,
-          title: "FlutterNotifier",
-          showWhen: true,
-          description: "Мониторинг уведомлений активен",
-        ) ??
-        false;
-  }
-
-  static Future<bool> stopService() async {
-    return await NotificationsListener.stopService() ?? false;
-  }
-
-  Future<void> updateApiClient() async {
-    var config = Hive.box(hiveConfigBox);
-
-    var apiClient = DefaultApi(
-      ApiClient(basePath: config.get(hostKey) ?? ""),
-    );
-    apiClient.apiClient.addDefaultHeader("Pin", config.get(pinKey) ?? "");
-    NotifierService.instance!.apiClient = apiClient;
-  }
-
-  static void _callback(NotificationEvent event) {
-    final SendPort? send = IsolateNameServer.lookupPortByName("_listener_");
-
-    if ((event.packageName ?? "") == targetPackage) {
+    if ((event.packageName ?? "") == targetPackage || true) {
       _processPost(event);
-      send?.send(event);
     }
   }
 
@@ -92,67 +45,66 @@ class NotifierService {
     return res < 0 ? 0 : res;
   }
 
-  static Future<void> _processPost(NotificationEvent event) async {
-    await initHive();
-    var config = Hive.box(hiveConfigBox);
-    var logs = Hive.box(hiveLogsBox);
+  static Future<void> _processPost(ServiceNotificationEvent event) async {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
 
-    int notificationTotal = logs.get(notificationTotalKey) ?? 0;
-    List<dynamic> eventLog = logs.get(logKey);
+    final config = await repo!.getConfig();
+    final status = await repo!.getStatus();
 
-    var amount = _extractAmountFromMessage(event.text ?? "");
+    var amount = _extractAmountFromMessage(event.content ?? "");
     try {
-      await NotifierService.instance?.apiClient.addServiceAmount(
+      await NotifierService.apiClient!.addServiceAmount(
         ArgAddServiceAmount(
-          hash: config.get(postKey) ?? "",
-          amount: _extractAmountFromMessage(event.text ?? ""),
+          hash: config?.hash ?? "",
+          amount: _extractAmountFromMessage(event.content ?? ""),
         ),
       );
-      eventLog.insert(
-        0,
-        NotificationEventLog(
+
+      await repo!.addEvent(
+        AppNotificationEvent(
+          null,
           event.packageName,
           event.title,
-          event.timestamp,
-          event.text,
+          timestamp,
+          event.content,
           true,
           amount,
-          config.get(hostKey, defaultValue: "NO_HOST"),
-          config.get(postTitleKey, defaultValue: "NO_POST"),
-          config.get(postKey, defaultValue: "NO_HASH"),
+          config?.host ?? "NO_HOST",
+          config?.title ?? "NO_POST",
+          config?.hash ?? "NO_HASH",
         ),
       );
     } on ApiException catch (apiError) {
-      eventLog.insert(
-        0,
-        NotificationEventLog(
+      await repo!.addEvent(
+        AppNotificationEvent(
+          null,
           event.packageName,
           event.title,
-          event.timestamp,
-          event.text,
+          timestamp,
+          event.content,
           false,
           amount,
-          config.get(hostKey, defaultValue: "NO_HOST"),
-          config.get(postTitleKey, defaultValue: "NO_POST"),
-          config.get(postKey, defaultValue: "NO_HASH"),
-          ErrorMessage: "Api Error #${apiError.code}",
+          config?.host ?? "NO_HOST",
+          config?.title ?? "NO_POST",
+          config?.hash ?? "NO_HASH",
+          errorMessage: "Api Error #${apiError.code}",
         ),
       );
       if (kDebugMode) print(apiError);
     } catch (e) {
-      eventLog.insert(
-        0,
-        NotificationEventLog(
+      await repo!.addEvent(
+        AppNotificationEvent(
+          null,
           event.packageName,
           event.title,
-          event.timestamp,
-          event.text,
+          timestamp,
+          event.content,
           false,
           amount,
-          config.get(hostKey, defaultValue: "NO_HOST"),
-          config.get(postTitleKey, defaultValue: "NO_POST"),
-          config.get(postKey, defaultValue: "NO_HASH"),
-          ErrorMessage: "Internal error",
+          config?.host ?? "NO_HOST",
+          config?.title ?? "NO_POST",
+          config?.hash ?? "NO_HASH",
+          errorMessage: "Internal error",
         ),
       );
       if (kDebugMode) print(e);
@@ -160,18 +112,119 @@ class NotifierService {
 
     final DateTime now = DateTime.now();
     const Duration day = Duration(days: 1);
+  }
+}
 
-    eventLog.removeWhere(
-      (element) {
-        if (element.Timestamp != null) {
-          DateTime eventDate = DateTime.fromMillisecondsSinceEpoch(element.Timestamp!, isUtc: true).toLocal();
-          return now.difference(eventDate) > day;
+class ApiChecker {
+  static IsarRepository? repo;
+  static Timer? timer;
+  static FlutterBackgroundService service = FlutterBackgroundService();
+
+  static Future<void> init() async {
+    ApiChecker.service.invoke("stopService");
+    if (ApiChecker.timer != null) {
+      ApiChecker.timer!.cancel();
+    }
+    await ApiChecker.service.configure(
+        iosConfiguration: IosConfiguration(),
+        androidConfiguration: AndroidConfiguration(
+          isForegroundMode: true,
+          onStart: ApiChecker.onStart,
+          autoStart: true,
+          autoStartOnBoot: true,
+          initialNotificationTitle: "Flutter Notifier",
+          initialNotificationContent: "Мониторинг уведомлений активен",
+        ));
+  }
+
+  static Future<void> checkAPI() async {
+    try {
+      repo ??= IsarRepository(instance: "apiChecker");
+
+      var status = await repo!.getStatus();
+      status ??= entity.Status();
+
+      try {
+        var res = await NotifierService.apiClient!.getPing();
+        status!.apiOk = true;
+        if (kDebugMode) print("success api check");
+      } catch (e) {
+        status!.apiOk = false;
+        if (kDebugMode) print("failed api check");
+      }
+
+      await repo!.updateStatus(status);
+    } catch (e) {
+      e.hashCode;
+    }
+  }
+
+  static void initNotificationsListener() {
+    statusSub ??= repo!.isar!.status.watchLazy();
+    statusSub!.listen((event) {
+      var status = repo!.getStatusSync();
+      if (!ApiChecker.permisssionStatus || ApiChecker.permisssionStatus != (status?.permissionStatus ?? false)) {
+        ApiChecker.sub?.cancel();
+        ApiChecker.sub = NotificationListenerService.notificationsStream.listen((event) {
+          NotifierService.callback(event);
+        });
+        ApiChecker.permisssionStatus == status?.permissionStatus ?? false;
+      }
+    });
+
+    ApiChecker.sub?.cancel();
+    ApiChecker.sub = NotificationListenerService.notificationsStream.listen((event) {
+      NotifierService.callback(event);
+    });
+  }
+
+  static bool permisssionStatus = false;
+  static Stream<void>? statusSub;
+  static Stream<void>? configSub;
+
+  static StreamSubscription<ServiceNotificationEvent>? sub;
+
+  @pragma('vm:entry-point')
+  static void onStart(ServiceInstance service) async {
+    WidgetsFlutterBinding.ensureInitialized();
+    DartPluginRegistrant.ensureInitialized();
+
+    repo ??= IsarRepository();
+
+    var config = await repo!.getConfig();
+    if (config != null && config.host != null) {
+      var apiClient = DefaultApi(ApiClient(basePath: "http://${config.host}"));
+      if (config.pin != null) {
+        apiClient.apiClient.addDefaultHeader("Pin", config.pin.toString());
+      }
+
+      NotifierService.apiClient = apiClient;
+    }
+
+    if (configSub == null) {
+      ApiChecker.configSub ??= repo!.isar!.configs.watchLazy();
+
+      configSub!.listen((event) async {
+        var config = await repo!.getConfig();
+        if (config != null && config.host != null) {
+          var apiClient = DefaultApi(ApiClient(basePath: "http://${config.host}"));
+          if (config.pin != null) {
+            apiClient.apiClient.addDefaultHeader("Pin", config.pin.toString());
+          }
+
+          NotifierService.apiClient = apiClient;
         }
-        return false;
-      },
-    );
+      });
+    }
 
-    logs.put(logKey, eventLog);
-    logs.put(notificationTotalKey, notificationTotal + 1);
+    initNotificationsListener();
+
+    if (timer != null) {
+      timer!.cancel();
+    }
+
+    timer = Timer.periodic(const Duration(seconds: 10), (timer) async {
+      await checkAPI();
+    });
   }
 }
